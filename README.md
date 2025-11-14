@@ -50,3 +50,26 @@ or with the template as a file:
 ```sh
 cat template.json | datamaker -f json -i 10000 | cloudantimport --db people
 ```
+
+## Understanding the output
+
+The output comes in two parts. Firstly, one line per bulk write request made:
+
+```
+2025-11-14T15:27:55Z 201 174 500 0
+2025-11-14T15:27:55Z 201 186 500 0
+2025-11-14T15:27:56Z 201 173 500 0
+```
+
+This shows the date/time, HTTP status code, latency (ms), number of documents successfully written and the number that failed.
+
+Then at the end comes a summary:
+
+```
+-------
+Summary
+-------
+{"statusCodes":{"201":20},"errors":{"conflict":10},"docs":9990,"batches":20}
+```
+
+which lists a counts of each HTTP status code, counts of document write errors, total docs written and total number of write batches.

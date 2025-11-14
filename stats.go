@@ -28,19 +28,31 @@ func NewStats() *Stats {
 
 // Save updates the Stats struct with the latest HTTP status code and error message
 // and how many documents were written
-func (s *Stats) Save(statusCode int, result []cloudantv1.DocumentResult) {
-	s.StatusCodes[int(statusCode)]++
+func (s *Stats) Save(statusCode int, result []cloudantv1.DocumentResult, latency int) {
+	successCount := 0
+	failureCount := 0
+	s.StatusCodes[statusCode]++
 	for _, v := range result {
 		if v.Error != nil {
 			s.ErrorMessages[*v.Error]++
+			failureCount++
+		} else {
+			successCount++
 		}
 	}
 	s.DocsWritten += len(result)
 	s.BatchesWritten++
+
+	// create and output a log line
+	ll := NewLogLine(statusCode, latency, successCount, failureCount)
+	ll.Output()
 }
 
 // Output turns the Stats struct into JSON and outputs it
-func (s Stats) Output() {
+func (s Stats) Summary() {
 	jsonStr, _ := json.Marshal(s)
+	fmt.Println("-------")
+	fmt.Println("Summary")
+	fmt.Println("-------")
 	fmt.Println(string(jsonStr))
 }

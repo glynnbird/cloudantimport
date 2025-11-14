@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/IBM/cloudant-go-sdk/cloudantv1"
 )
@@ -58,6 +59,8 @@ func NewCloudantImport() (*CloudantImport, error) {
 
 // writeBuffer saves the stored Cloudant documents to Cloudant
 func (ci *CloudantImport) writeBuffer() {
+	start := time.Now()
+
 	// this is the slice of data to write
 	documents := ci.buffer[:ci.bufferLen]
 
@@ -72,8 +75,8 @@ func (ci *CloudantImport) writeBuffer() {
 	if err != nil {
 		panic(err)
 	}
-	ci.stats.Save(response.StatusCode, result)
-	ci.stats.Output()
+	latency := time.Since(start)
+	ci.stats.Save(response.StatusCode, result, int(latency.Milliseconds()))
 }
 
 // Run executes a CloudantImport job, reading lines of data from stdin,
@@ -93,6 +96,7 @@ func (ci *CloudantImport) Run() {
 			if ci.bufferLen > 0 {
 				ci.writeBuffer()
 			}
+			ci.stats.Summary()
 			break
 		}
 
