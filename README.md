@@ -33,6 +33,13 @@ Pipe a JSON file (one document per line) into _cloudantimport_ and supply the da
 cat myfile.json | cloudantimport --db mydb
 ```
 
+By default, only one bulk write API call is in flight at any one time. This can be increased with the `--concurrency`/`--c` option
+
+```sh
+# import data with a maximum of 5 bulk write API calls in flight at once
+cat myfile.json | cloudantimport --db mydb --concurrency 5
+```
+
 ## Generating random data
 
 _cloudantimport_ can be paired with [datamaker](https://www.npmjs.com/package/datamaker) to generate any amount of sample data:
@@ -72,4 +79,4 @@ Summary
 {"statusCodes":{"201":20},"errors":{"conflict":10},"docs":9990,"batches":20}
 ```
 
-which lists a counts of each HTTP status code, counts of document write errors, total docs written and total number of write
+which lists the counts of each HTTP status code, counts of document write errors, total docs written and total number of bulk write API calls.
