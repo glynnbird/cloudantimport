@@ -1,4 +1,4 @@
-package main
+package importer
 
 import (
 	"bufio"
@@ -21,9 +21,9 @@ type CloudantImport struct {
 	stats     *Stats                 // running statistics
 }
 
-// NewCloudantImport creates a new CloudantImport struct, loading the CLI parameters,
+// New creates a new CloudantImport struct, loading the CLI parameters,
 // instantiating the Cloudant SDK client and creating a buffer of strings.
-func NewCloudantImport() (*CloudantImport, error) {
+func New() (*CloudantImport, error) {
 	// load the CLI parameters
 	appConfig, err := NewAppConfig()
 	if err != nil {
@@ -35,6 +35,7 @@ func NewCloudantImport() (*CloudantImport, error) {
 	if err != nil {
 		return nil, err
 	}
+	service.EnableRetries(3, 5*time.Second)
 
 	// setup the buffer
 	buffer := make([]cloudantv1.Document, bufferSize)

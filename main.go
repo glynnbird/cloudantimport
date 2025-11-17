@@ -1,11 +1,15 @@
 package main
 
+import "github.com/glynnbird/cloudantimport/importer"
+
 func main() {
 
-	cloudantImport, err := NewCloudantImport()
+	// create a new importer
+	cloudantImport, err := importer.New()
 	if err != nil {
 		panic(err)
 	}
 
+	// run it
 	cloudantImport.Run()
 }

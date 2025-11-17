@@ -1,4 +1,4 @@
-module github.com/glynnbird/cloudantimport/v2
+module github.com/glynnbird/cloudantimport
 
 go 1.25.1
 

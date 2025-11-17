@@ -4,7 +4,7 @@
 
 When populating Cloudant databases, often the source of the data is initially some JSON documents in a file.
 
-*cloudantimport* is designed to assist with importing such data into CouchDB efficiently. Simply pipe a file full of JSON documents into *cloudantimport*, telling it the URL and database to send the data to and *cloudantimport* will batch the documents into batches and employ CouchDB's bulk import API.
+*cloudantimport* is designed to assist with importing such data into Cloudant efficiently. Simply pipe a file full of JSON documents into *cloudantimport*, telling it the database to send the data to and it will group the documents into batches and employ Cloudant's bulk import API.
 
 ## Installation
 
@@ -38,7 +38,7 @@ cat myfile.json | cloudantimport --db mydb
 _cloudantimport_ can be paired with [datamaker](https://www.npmjs.com/package/datamaker) to generate any amount of sample data:
 
 ```sh
-# template ---> datamaker ---> 100 JSON docs ---> cloudantimport ---> CouchDB
+# template ---> datamaker ---> 100 JSON docs ---> cloudantimport ---> Cloudant
 echo '{"_id":"{{uuid}}","name":"{{name}}","email":"{{email true}}","dob":"{{date 1950-01-01}}"}' | datamaker -f json -i 100 | cloudantimport --db people
 written {"docCount":100,"successCount":1,"failCount":0,"statusCodes":{"201":1}}
 written {"batch":1,"batchSize":100,"docSuccessCount":100,"docFailCount":0,"statusCodes":{"201":1},"errors":{}}
@@ -72,4 +72,4 @@ Summary
 {"statusCodes":{"201":20},"errors":{"conflict":10},"docs":9990,"batches":20}
 ```
 
-which lists a counts of each HTTP status code, counts of document write errors, total docs written and total number of write batches.
+which lists a counts of each HTTP status code, counts of document write errors, total docs written and total number of write
