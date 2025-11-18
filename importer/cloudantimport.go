@@ -14,9 +14,6 @@ import (
 
 const bufferSize = 500 // the maximum size of our internal buffer of unwritten documents
 
-// create a WaitGroup to control concurrency
-var wg sync.WaitGroup
-
 type CloudantImport struct {
 	appConfig *AppConfig             // our command-line options
 	buffer    []cloudantv1.Document  // the buffer of documents that haven't been saved to Cloudant yet
@@ -25,6 +22,7 @@ type CloudantImport struct {
 	reader    *bufio.Reader          // the input stream
 	stats     *Stats                 // running statistics
 	sem       chan int               // a semaphore with one slot per concurrent HTTP request
+	wg        sync.WaitGroup         // to keep track of running go routines
 }
 
 // New creates a new CloudantImport struct, loading the CLI parameters,
@@ -63,6 +61,7 @@ func New() (*CloudantImport, error) {
 		reader:    reader,
 		stats:     stats,
 		sem:       sem,
+		wg:        sync.WaitGroup{},
 	}
 
 	return &ci, nil
@@ -71,7 +70,7 @@ func New() (*CloudantImport, error) {
 // writeBuffer saves the stored Cloudant documents to Cloudant
 func (ci *CloudantImport) writeBuffer(documents []cloudantv1.Document) {
 	// make sure we release our slot
-	defer wg.Done()
+	defer ci.wg.Done()
 	defer func() { <-ci.sem }()
 
 	start := time.Now()
@@ -110,7 +109,7 @@ func (ci *CloudantImport) Run() {
 			// flush the buffer
 			if ci.bufferLen > 0 {
 				// last write
-				wg.Add(1)
+				ci.wg.Add(1)
 				ci.sem <- 1
 				go ci.writeBuffer(ci.buffer[:ci.bufferLen])
 			}
@@ -142,7 +141,7 @@ func (ci *CloudantImport) Run() {
 			// if the buffer is full
 			if ci.bufferLen == bufferSize {
 				// write it to Cloudant and reset the buffer
-				wg.Add(1)
+				ci.wg.Add(1)
 
 				// block to see if we have slots available
 				ci.sem <- 1
@@ -159,7 +158,7 @@ func (ci *CloudantImport) Run() {
 	}
 
 	// wait for the in-flight requests to complete
-	wg.Wait()
+	ci.wg.Wait()
 
 	// generate final summary
 	ci.stats.Summary()
