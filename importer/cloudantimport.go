@@ -23,6 +23,7 @@ type CloudantImport struct {
 	stats     *Stats                 // running statistics
 	sem       chan int               // a semaphore with one slot per concurrent HTTP request
 	wg        sync.WaitGroup         // to keep track of running go routines
+	mutex     sync.Mutex             // mutual exclusive lock to protect our stats
 }
 
 // New creates a new CloudantImport struct, loading the CLI parameters,
@@ -62,6 +63,7 @@ func New() (*CloudantImport, error) {
 		stats:     stats,
 		sem:       sem,
 		wg:        sync.WaitGroup{},
+		mutex:     sync.Mutex{},
 	}
 
 	return &ci, nil
@@ -89,7 +91,7 @@ func (ci *CloudantImport) writeBuffer(documents []cloudantv1.Document) {
 		return
 	}
 	latency := time.Since(start)
-	ci.stats.Save(response.StatusCode, result, int(latency.Milliseconds()))
+	ci.stats.Save(response.StatusCode, result, int(latency.Milliseconds()), &ci.mutex)
 }
 
 // Run executes a CloudantImport job, reading lines of data from stdin,

@@ -3,6 +3,7 @@ package importer
 import (
 	"encoding/json"
 	"fmt"
+	"sync"
 
 	"github.com/IBM/cloudant-go-sdk/cloudantv1"
 )
@@ -28,9 +29,10 @@ func NewStats() *Stats {
 
 // Save updates the Stats struct with the latest HTTP status code and error message
 // and how many documents were written
-func (s *Stats) Save(statusCode int, result []cloudantv1.DocumentResult, latency int) {
+func (s *Stats) Save(statusCode int, result []cloudantv1.DocumentResult, latency int, mutex *sync.Mutex) {
 	successCount := 0
 	failureCount := 0
+	mutex.Lock()
 	s.StatusCodes[statusCode]++
 	for _, v := range result {
 		if v.Error != nil {
@@ -42,6 +44,7 @@ func (s *Stats) Save(statusCode int, result []cloudantv1.DocumentResult, latency
 	}
 	s.DocsWritten += len(result)
 	s.BatchesWritten++
+	mutex.Unlock()
 
 	// create and output a log line
 	ll := NewLogLine(statusCode, latency, successCount, failureCount)
