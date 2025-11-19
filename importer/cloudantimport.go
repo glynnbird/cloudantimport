@@ -68,7 +68,11 @@ func New() (*CloudantImport, error) {
 	return &ci, nil
 }
 
-// writeBuffer saves the stored Cloudant documents to Cloudant
+// writeBuffer saves the stored Cloudant documents to Cloudant. It is a
+// goroutine, so there are N workers - 1 per "concurrency". Each work
+// loops on the jobsChan waiting to be sent batches of data.
+// When the channel is closed, the workers will exit. Response data is
+// transmitted back on the resultsChan, errors on the errorsChan.
 func (ci *CloudantImport) writeBufferWorker() {
 	// make sure we release our slot
 	defer ci.wg.Done()
@@ -115,20 +119,21 @@ func (ci *CloudantImport) Run() {
 
 	// spin up a goroutine to handle the results and errors
 	go func() {
-		for ci.resultsChan != nil || ci.errorsChan != nil {
+		for {
 			select {
+			// <- returns the value of the channel and boolean ok,
+			// that indicates whether the channel is open or not.
+			// If ok == false, we can return - nothing more to do
 			case r, ok := <-ci.resultsChan:
 				if !ok {
-					ci.resultsChan = nil
-					continue
+					return
 				}
 				ci.stats.Save(&r)
 			case err, ok := <-ci.errorsChan:
 				if !ok {
-					ci.errorsChan = nil
-					continue
+					return
 				}
-				fmt.Println("ERROR:", err)
+				panic(fmt.Sprintf("ERROR: %v", err))
 			}
 		}
 	}()
@@ -146,6 +151,8 @@ func (ci *CloudantImport) Run() {
 				// last write
 				ci.jobsChan <- ci.buffer[:ci.bufferLen]
 			}
+
+			// close the jobs channel - we're finished
 			close(ci.jobsChan)
 			break
 		}
@@ -175,9 +182,9 @@ func (ci *CloudantImport) Run() {
 			// if the buffer is full
 			if ci.bufferLen == bufferSize {
 				// write to the jobs channel
-				// note to self - we have to clone the slice here because if we will go on to
-				// reuse the underlying buffer which will modify the data that the goroutine
-				// at the other end of the channel will see
+				// note to self - we have to clone the slice here because we will go on to
+				// reuse the underlying buffer which if we didn't clone, would  modify
+				// the data that the goroutine  at the other end of the channel will see
 				clone := make([]cloudantv1.Document, ci.bufferLen)
 				copy(clone, ci.buffer[:ci.bufferLen])
 				ci.jobsChan <- clone
