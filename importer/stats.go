@@ -25,11 +25,12 @@ type StatsDataPoint struct {
 
 // NewStats creates a new empty Stats struct
 func NewStats() *Stats {
-	stats := Stats{}
-	stats.StatusCodes = make(map[int]int, 5)
-	stats.ErrorMessages = make(map[string]int, 5)
-	stats.DocsWritten = 0
-	stats.BatchesWritten = 0
+	stats := Stats{
+		StatusCodes:    make(map[int]int, 5),
+		ErrorMessages:  make(map[string]int, 5),
+		DocsWritten:    0,
+		BatchesWritten: 0,
+	}
 	return &stats
 }
 
@@ -56,7 +57,7 @@ func (s *Stats) Save(statsDataPoint *StatsDataPoint) {
 }
 
 // Output turns the Stats struct into JSON and outputs it
-func (s Stats) Summary() {
+func (s *Stats) Summary() {
 	jsonStr, _ := json.Marshal(s)
 	fmt.Println("-------")
 	fmt.Println("Summary")
