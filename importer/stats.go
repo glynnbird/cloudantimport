@@ -59,8 +59,5 @@ func (s *Stats) Save(statsDataPoint *StatsDataPoint) {
 // Output turns the Stats struct into JSON and outputs it
 func (s *Stats) Summary() {
 	jsonStr, _ := json.Marshal(s)
-	fmt.Println("-------")
-	fmt.Println("Summary")
-	fmt.Println("-------")
 	fmt.Println(string(jsonStr))
 }

@@ -60,23 +60,26 @@ cat template.json | datamaker -f json -i 10000 | cloudantimport --db people
 
 ## Understanding the output
 
-The output comes in two parts. Firstly, one line per bulk write request made:
+The output comes in two parts. Firstly, one line per bulk write request made to stderr:
 
 ```
-2025-11-14T15:27:55Z 201 174 500 0
-2025-11-14T15:27:55Z 201 186 500 0
-2025-11-14T15:27:56Z 201 173 500 0
+2025/11/20 09:51:49 201 176 500 0
+2025/11/20 09:51:49 201 165 500 0
+2025/11/20 09:51:50 201 165 500 0
 ```
 
 This shows the date/time, HTTP status code, latency (ms), number of documents successfully written and the number that failed.
 
-Then at the end comes a summary:
+Then at the end comes a summary to stdout:
 
 ```
--------
-Summary
--------
 {"statusCodes":{"201":20},"errors":{"conflict":10},"docs":9990,"batches":20}
 ```
 
 which lists the counts of each HTTP status code, counts of document write errors, total docs written and total number of bulk write API calls.
+
+## How does it work?
+
+To remind myself of what's going on, this diagram helps:
+
+![diagram](couchimport.png)

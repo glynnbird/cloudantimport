@@ -3,6 +3,7 @@ package importer
 import (
 	"bufio"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -105,11 +106,47 @@ func (ci *CloudantImport) writeBufferWorker() {
 	}
 }
 
+// statsCollector waits for data arriving back on resultsChan and
+// errorsChan, aggregating results and panicking if an error occurs
+func (ci *CloudantImport) statsCollector() {
+	for {
+		select {
+		// <- returns the value of the channel and boolean ok,
+		// that indicates whether the channel is open or not.
+		// If ok == false, we can return - nothing more to do
+		case r, ok := <-ci.resultsChan:
+			if !ok {
+				return
+			}
+			ci.stats.Save(&r)
+		case err, ok := <-ci.errorsChan:
+			if !ok {
+				return
+			}
+			panic(fmt.Sprintf("ERROR: %v", err))
+		}
+	}
+}
+
+// checkTargetDatabase checks whether the database to be written to exists. It returns
+// an error if it doesn't
+func (ci *CloudantImport) checkTargetDatabase() error {
+	opts := ci.service.NewGetDatabaseInformationOptions(ci.appConfig.DatabaseName)
+	_, _, err := ci.service.GetDatabaseInformation(opts)
+	return err
+}
+
 // Run executes a CloudantImport job, reading lines of data from stdin,
 // parsing them as JSON and then turning the resultant map into a
 // Cloudant document suitable for the SDKs. Up to bufferSize documents
 // are bufferred in memory and written to Cloudant in bulk.
-func (ci *CloudantImport) Run() {
+func (ci *CloudantImport) Run() error {
+
+	// check that the target database exists
+	err := ci.checkTargetDatabase()
+	if err != nil {
+		return errors.New("database does not exist")
+	}
 
 	// Start worker pool
 	for i := 0; i < ci.appConfig.Concurrency; i++ {
@@ -118,25 +155,7 @@ func (ci *CloudantImport) Run() {
 	}
 
 	// spin up a goroutine to handle the results and errors
-	go func() {
-		for {
-			select {
-			// <- returns the value of the channel and boolean ok,
-			// that indicates whether the channel is open or not.
-			// If ok == false, we can return - nothing more to do
-			case r, ok := <-ci.resultsChan:
-				if !ok {
-					return
-				}
-				ci.stats.Save(&r)
-			case err, ok := <-ci.errorsChan:
-				if !ok {
-					return
-				}
-				panic(fmt.Sprintf("ERROR: %v", err))
-			}
-		}
-	}()
+	go ci.statsCollector()
 
 	// loop until we run out of data
 	for {
@@ -184,7 +203,7 @@ func (ci *CloudantImport) Run() {
 				// write to the jobs channel
 				// note to self - we have to clone the slice here because we will go on to
 				// reuse the underlying buffer which if we didn't clone, would  modify
-				// the data that the goroutine  at the other end of the channel will see
+				// the data that the goroutine at the other end of the channel will see
 				clone := make([]cloudantv1.Document, ci.bufferLen)
 				copy(clone, ci.buffer[:ci.bufferLen])
 				ci.jobsChan <- clone
@@ -200,4 +219,6 @@ func (ci *CloudantImport) Run() {
 
 	// generate final summary
 	ci.stats.Summary()
+
+	return nil
 }
