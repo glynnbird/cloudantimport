@@ -3,6 +3,7 @@ package importer
 import (
 	"bufio"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -15,15 +16,16 @@ import (
 const bufferSize = 500 // the maximum size of our internal buffer of unwritten documents
 
 type CloudantImport struct {
-	appConfig *AppConfig             // our command-line options
-	buffer    []cloudantv1.Document  // the buffer of documents that haven't been saved to Cloudant yet
-	service   *cloudantv1.CloudantV1 // the Cloudant SDK client
-	bufferLen int                    // how many strings are in our buffer
-	reader    *bufio.Reader          // the input stream
-	stats     *Stats                 // running statistics
-	sem       chan int               // a semaphore with one slot per concurrent HTTP request
-	wg        sync.WaitGroup         // to keep track of running go routines
-	mutex     sync.Mutex             // mutual exclusive lock to protect our stats
+	appConfig   *AppConfig                 // our command-line options
+	buffer      []cloudantv1.Document      // the buffer of documents that haven't been saved to Cloudant yet
+	service     *cloudantv1.CloudantV1     // the Cloudant SDK client
+	bufferLen   int                        // how many strings are in our buffer
+	reader      *bufio.Reader              // the input stream
+	stats       *Stats                     // running statistics
+	wg          sync.WaitGroup             // to keep track of running go routines
+	resultsChan chan StatsDataPoint        // channel to carry results of API calls
+	jobsChan    chan []cloudantv1.Document // channel to carry jobs, slices of Cloudant documents to write
+	errorsChan  chan error                 // channel to carry errors that occurred when writing to Cloudant
 }
 
 // New creates a new CloudantImport struct, loading the CLI parameters,
@@ -34,9 +36,6 @@ func New() (*CloudantImport, error) {
 	if err != nil {
 		return nil, err
 	}
-
-	// create a semaphore group with one slot per "conccurrency"
-	sem := make(chan int, appConfig.Concurrency)
 
 	// set up the Cloudant service
 	service, err := cloudantv1.NewCloudantV1UsingExternalConfig(&cloudantv1.CloudantV1Options{})
@@ -55,50 +54,108 @@ func New() (*CloudantImport, error) {
 	stats := NewStats()
 
 	ci := CloudantImport{
-		appConfig: appConfig,
-		buffer:    buffer,
-		service:   service,
-		bufferLen: 0,
-		reader:    reader,
-		stats:     stats,
-		sem:       sem,
-		wg:        sync.WaitGroup{},
-		mutex:     sync.Mutex{},
+		appConfig:   appConfig,
+		buffer:      buffer,
+		service:     service,
+		bufferLen:   0,
+		reader:      reader,
+		stats:       stats,
+		wg:          sync.WaitGroup{},
+		resultsChan: make(chan StatsDataPoint),
+		jobsChan:    make(chan []cloudantv1.Document, appConfig.Concurrency),
+		errorsChan:  make(chan error),
 	}
 
 	return &ci, nil
 }
 
-// writeBuffer saves the stored Cloudant documents to Cloudant
-func (ci *CloudantImport) writeBuffer(documents []cloudantv1.Document) {
+// writeBuffer saves the stored Cloudant documents to Cloudant. It is a
+// goroutine, so there are N workers - 1 per "concurrency". Each work
+// loops on the jobsChan waiting to be sent batches of data.
+// When the channel is closed, the workers will exit. Response data is
+// transmitted back on the resultsChan, errors on the errorsChan.
+func (ci *CloudantImport) writeBufferWorker() {
 	// make sure we release our slot
 	defer ci.wg.Done()
-	defer func() { <-ci.sem }()
 
-	start := time.Now()
+	for job := range ci.jobsChan {
+		start := time.Now()
 
-	// write to Cloudant with POST /{db}/_bulk_docs
-	postBulkDocsOptions := ci.service.NewPostBulkDocsOptions(ci.appConfig.DatabaseName)
-	bulkDocs, err := ci.service.NewBulkDocs(documents)
-	if err != nil {
-		fmt.Println("ERROR", err)
-		return
+		// write to Cloudant with POST /{db}/_bulk_docs
+		postBulkDocsOptions := ci.service.NewPostBulkDocsOptions(ci.appConfig.DatabaseName)
+		bulkDocs, err := ci.service.NewBulkDocs(job)
+		if err != nil {
+			ci.errorsChan <- err
+			return
+		}
+		postBulkDocsOptions.SetBulkDocs(bulkDocs)
+		result, response, err := ci.service.PostBulkDocs(postBulkDocsOptions)
+		if err != nil {
+			ci.errorsChan <- err
+			return
+		}
+		latency := time.Since(start)
+
+		// save the stats
+		statsDataPoint := StatsDataPoint{
+			statusCode: response.StatusCode,
+			result:     result,
+			latency:    int(latency.Milliseconds()),
+		}
+		ci.resultsChan <- statsDataPoint
 	}
-	postBulkDocsOptions.SetBulkDocs(bulkDocs)
-	result, response, err := ci.service.PostBulkDocs(postBulkDocsOptions)
-	if err != nil {
-		fmt.Println("ERROR", err)
-		return
+}
+
+// statsCollector waits for data arriving back on resultsChan and
+// errorsChan, aggregating results and panicking if an error occurs
+func (ci *CloudantImport) statsCollector() {
+	for {
+		select {
+		// <- returns the value of the channel and boolean ok,
+		// that indicates whether the channel is open or not.
+		// If ok == false, we can return - nothing more to do
+		case r, ok := <-ci.resultsChan:
+			if !ok {
+				return
+			}
+			ci.stats.Save(&r)
+		case err, ok := <-ci.errorsChan:
+			if !ok {
+				return
+			}
+			panic(fmt.Sprintf("ERROR: %v", err))
+		}
 	}
-	latency := time.Since(start)
-	ci.stats.Save(response.StatusCode, result, int(latency.Milliseconds()), &ci.mutex)
+}
+
+// checkTargetDatabase checks whether the database to be written to exists. It returns
+// an error if it doesn't
+func (ci *CloudantImport) checkTargetDatabase() error {
+	opts := ci.service.NewGetDatabaseInformationOptions(ci.appConfig.DatabaseName)
+	_, _, err := ci.service.GetDatabaseInformation(opts)
+	return err
 }
 
 // Run executes a CloudantImport job, reading lines of data from stdin,
 // parsing them as JSON and then turning the resultant map into a
 // Cloudant document suitable for the SDKs. Up to bufferSize documents
 // are bufferred in memory and written to Cloudant in bulk.
-func (ci *CloudantImport) Run() {
+func (ci *CloudantImport) Run() error {
+
+	// check that the target database exists
+	err := ci.checkTargetDatabase()
+	if err != nil {
+		return errors.New("database does not exist")
+	}
+
+	// Start worker pool
+	for i := 0; i < ci.appConfig.Concurrency; i++ {
+		ci.wg.Add(1)
+		go ci.writeBufferWorker()
+	}
+
+	// spin up a goroutine to handle the results and errors
+	go ci.statsCollector()
 
 	// loop until we run out of data
 	for {
@@ -111,10 +168,11 @@ func (ci *CloudantImport) Run() {
 			// flush the buffer
 			if ci.bufferLen > 0 {
 				// last write
-				ci.wg.Add(1)
-				ci.sem <- 1
-				go ci.writeBuffer(ci.buffer[:ci.bufferLen])
+				ci.jobsChan <- ci.buffer[:ci.bufferLen]
 			}
+
+			// close the jobs channel - we're finished
+			close(ci.jobsChan)
 			break
 		}
 
@@ -142,18 +200,13 @@ func (ci *CloudantImport) Run() {
 
 			// if the buffer is full
 			if ci.bufferLen == bufferSize {
-				// write it to Cloudant and reset the buffer
-				ci.wg.Add(1)
-
-				// block to see if we have slots available
-				ci.sem <- 1
-
-				// if we reach here, we must have an execution slot available
-				// Note to self: without the 2 clone lines below, the slice ci.buffer[:ci.bufferLen]
-				// doesn't arrive at ci.writeBuffer quite as you expect it to.
+				// write to the jobs channel
+				// note to self - we have to clone the slice here because we will go on to
+				// reuse the underlying buffer which if we didn't clone, would  modify
+				// the data that the goroutine at the other end of the channel will see
 				clone := make([]cloudantv1.Document, ci.bufferLen)
 				copy(clone, ci.buffer[:ci.bufferLen])
-				go ci.writeBuffer(clone)
+				ci.jobsChan <- clone
 				ci.bufferLen = 0
 			}
 		}
@@ -161,7 +214,11 @@ func (ci *CloudantImport) Run() {
 
 	// wait for the in-flight requests to complete
 	ci.wg.Wait()
+	close(ci.resultsChan)
+	close(ci.errorsChan)
 
 	// generate final summary
 	ci.stats.Summary()
+
+	return nil
 }

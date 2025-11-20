@@ -11,5 +11,8 @@ func main() {
 	}
 
 	// run it
-	cloudantImport.Run()
+	err = cloudantImport.Run()
+	if err != nil {
+		panic(err)
+	}
 }
