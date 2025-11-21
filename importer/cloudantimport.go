@@ -22,7 +22,8 @@ type CloudantImport struct {
 	bufferLen   int                        // how many strings are in our buffer
 	reader      *bufio.Reader              // the input stream
 	stats       *Stats                     // running statistics
-	wg          sync.WaitGroup             // to keep track of running go routines
+	wgWorker    sync.WaitGroup             // to keep track of running goroutines
+	wgCollector sync.WaitGroup             // to keep track of the collector goroutine
 	resultsChan chan StatsDataPoint        // channel to carry results of API calls
 	jobsChan    chan []cloudantv1.Document // channel to carry jobs, slices of Cloudant documents to write
 	errorsChan  chan error                 // channel to carry errors that occurred when writing to Cloudant
@@ -60,7 +61,8 @@ func New() (*CloudantImport, error) {
 		bufferLen:   0,
 		reader:      reader,
 		stats:       stats,
-		wg:          sync.WaitGroup{},
+		wgWorker:    sync.WaitGroup{},
+		wgCollector: sync.WaitGroup{},
 		resultsChan: make(chan StatsDataPoint),
 		jobsChan:    make(chan []cloudantv1.Document, appConfig.Concurrency),
 		errorsChan:  make(chan error),
@@ -76,7 +78,7 @@ func New() (*CloudantImport, error) {
 // transmitted back on the resultsChan, errors on the errorsChan.
 func (ci *CloudantImport) writeBufferWorker() {
 	// make sure we release our slot
-	defer ci.wg.Done()
+	defer ci.wgWorker.Done()
 
 	for job := range ci.jobsChan {
 		start := time.Now()
@@ -109,6 +111,7 @@ func (ci *CloudantImport) writeBufferWorker() {
 // statsCollector waits for data arriving back on resultsChan and
 // errorsChan, aggregating results and panicking if an error occurs
 func (ci *CloudantImport) statsCollector() {
+	defer ci.wgCollector.Done()
 	for {
 		select {
 		// <- returns the value of the channel and boolean ok,
@@ -150,11 +153,12 @@ func (ci *CloudantImport) Run() error {
 
 	// Start worker pool
 	for i := 0; i < ci.appConfig.Concurrency; i++ {
-		ci.wg.Add(1)
+		ci.wgWorker.Add(1)
 		go ci.writeBufferWorker()
 	}
 
 	// spin up a goroutine to handle the results and errors
+	ci.wgCollector.Add(1)
 	go ci.statsCollector()
 
 	// loop until we run out of data
@@ -213,9 +217,10 @@ func (ci *CloudantImport) Run() error {
 	}
 
 	// wait for the in-flight requests to complete
-	ci.wg.Wait()
+	ci.wgWorker.Wait()
 	close(ci.resultsChan)
 	close(ci.errorsChan)
+	ci.wgCollector.Wait()
 
 	// generate final summary
 	ci.stats.Summary()
