@@ -3,7 +3,6 @@ package importer
 import (
 	"errors"
 	"flag"
-	"fmt"
 )
 
 // AppConfig contains the command-line options chosen by the user
@@ -12,13 +11,8 @@ type AppConfig struct {
 	Concurrency  int
 }
 
-func (ac AppConfig) Print() {
-	fmt.Println("APP CONFIG")
-	fmt.Println("----------")
-	fmt.Printf("DatabaseName: %v\n", ac.DatabaseName)
-	fmt.Printf("Concurrency: %v\n", ac.Concurrency)
-}
-
+// NewAppConfig createsa new AppConfig struct, parsing the incoming command-line options
+// an returning an AppConfig pointer or an error
 func NewAppConfig() (*AppConfig, error) {
 	appConfig := AppConfig{}
 

@@ -4,7 +4,7 @@ import (
 	"log"
 )
 
-// LogLine stores the data collected for a single log
+// LogLine stores the data collected for a single output log line
 type LogLine struct {
 	StatusCode          int `json:"statusCode"`
 	LatencyMilliseconds int `json:"latency"`
@@ -12,6 +12,7 @@ type LogLine struct {
 	DocsFailed          int `json:"docsFailed"`
 }
 
+// NewLogLine creates a ne LogLine struct, given the incoming attributes
 func NewLogLine(statusCode int, latency int, success int, failed int) *LogLine {
 	ll := LogLine{
 		StatusCode:          statusCode,
