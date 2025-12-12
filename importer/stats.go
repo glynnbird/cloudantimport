@@ -3,13 +3,16 @@ package importer
 import (
 	"encoding/json"
 	"fmt"
+	"sync"
 
 	"github.com/IBM/cloudant-go-sdk/cloudantv1"
 )
 
 // Stats stores the statistics for a CloudantImport operation. A log of the frequency of HTTP
 // status codes / error messages and a running count of documents and batches written.
+// All methods are thread-safe and can be called concurrently.
 type Stats struct {
+	mu             sync.Mutex     `json:"-"` // protects all fields below, excluded from JSON
 	StatusCodes    map[int]int    `json:"statusCodes"`
 	ErrorMessages  map[string]int `json:"errors"`
 	DocsWritten    int            `json:"docs"`
@@ -35,10 +38,13 @@ func NewStats() *Stats {
 }
 
 // Save updates the Stats struct with the latest HTTP status code and error message
-// and how many documents were written
+// and how many documents were written. This method is thread-safe.
 func (s *Stats) Save(statsDataPoint *StatsDataPoint) {
 	successCount := 0
 	failureCount := 0
+
+	// Lock for the duration of the update to prevent concurrent map access
+	s.mu.Lock()
 	s.StatusCodes[statsDataPoint.statusCode]++
 	for _, v := range statsDataPoint.result {
 		if v.Error != nil {
@@ -50,14 +56,18 @@ func (s *Stats) Save(statsDataPoint *StatsDataPoint) {
 	}
 	s.DocsWritten += len(statsDataPoint.result)
 	s.BatchesWritten++
+	s.mu.Unlock()
 
-	// create and output a log line
+	// create and output a log line (outside the lock since it's just I/O)
 	ll := NewLogLine(statsDataPoint.statusCode, statsDataPoint.latency, successCount, failureCount)
 	ll.Output()
 }
 
-// Output turns the Stats struct into JSON and outputs it
+// Summary turns the Stats struct into JSON and outputs it.
+// This method is thread-safe.
 func (s *Stats) Summary() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	jsonStr, _ := json.Marshal(s)
 	fmt.Println(string(jsonStr))
 }
