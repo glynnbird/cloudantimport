@@ -11,7 +11,7 @@ When populating Cloudant databases, often the source of the data is initially so
 You will need to [download and install the Go compiler](https://go.dev/doc/install). Clone this repo then:
 
 ```sh
-go build
+go build ./cmd/cloudantimport
 ```
 
 The copy the resultant binary `cloudantimport` (or `cloudantimport.exe` in Windows systems) into your path.

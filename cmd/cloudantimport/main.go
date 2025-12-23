@@ -1,6 +1,6 @@
 package main
 
-import "github.com/glynnbird/cloudantimport/importer"
+import importer "github.com/glynnbird/cloudantimport/internal/app"
 
 func main() {
 
