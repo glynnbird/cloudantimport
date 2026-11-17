@@ -20,7 +20,7 @@ type CloudantImport struct {
 	appConfig   *AppConfig                 // our command-line options
 	buffer      []cloudantv1.Document      // the buffer of documents that haven't been saved to Cloudant yet
 	service     *cloudantv1.CloudantV1     // the Cloudant SDK client
-	bufferLen   int                        // how many strings are in our buffer
+	bufferLen   int                        // how many documents are in our buffer
 	reader      *bufio.Reader              // the input stream
 	stats       *Stats                     // running statistics
 	wgWorker    sync.WaitGroup             // to keep track of running worker goroutines
@@ -93,13 +93,13 @@ func (ci *CloudantImport) writeBufferWorker() {
 		bulkDocs, err := ci.service.NewBulkDocs(job)
 		if err != nil {
 			ci.errorsChan <- err
-			return
+			continue
 		}
 		postBulkDocsOptions.SetBulkDocs(bulkDocs)
 		result, response, err := ci.service.PostBulkDocs(postBulkDocsOptions)
 		if err != nil {
 			ci.errorsChan <- err
-			return
+			continue
 		}
 		latency := time.Since(start)
 

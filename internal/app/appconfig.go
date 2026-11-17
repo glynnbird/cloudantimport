@@ -27,7 +27,7 @@ func NewAppConfig() (*AppConfig, error) {
 	if appConfig.DatabaseName == "" {
 		return nil, errors.New("missing dbname/db")
 	} else if appConfig.Concurrency < 1 || appConfig.Concurrency > 50 {
-		return nil, errors.New("conccurrency must be between 1 and 50")
+		return nil, errors.New("concurrency must be between 1 and 50")
 	} else {
 		return &appConfig, nil
 	}
